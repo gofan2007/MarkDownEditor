@@ -27,6 +27,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace MarkDownEditor.ViewModel
 {
@@ -63,7 +64,33 @@ namespace MarkDownEditor.ViewModel
 
             var line = SourceCode.GetLineByOffset(CaretOffset);
             CurrentCaretStatisticsInfo = $"{Properties.Resources.Ln}: {line.LineNumber}    {Properties.Resources.Col}: {CaretOffset - line.Offset}";
+
+            if (File.Exists(autoSavePath))
+            {                
+                var enc = SimpleHelpers.FileEncoding.DetectFileEncoding(autoSavePath, System.Text.Encoding.UTF8);
+                StreamReader sr = new StreamReader(autoSavePath, enc);
+                var content = sr.ReadToEnd();
+                sr.Close();
+                if (content != null)
+                {
+                    SourceCode = new TextDocument(content);
+                    SourceCode.TextChanged += new EventHandler((object obj, EventArgs e) => UpdatePreview());
+                    UpdatePreview();
+                    SourceCode.TextChanged += new EventHandler((object obj, EventArgs e) => IsModified = CanUndo);
+                    IsModified = true;
+                }
+            }
+            timer = new DispatcherTimer();
+            timer.Interval = new TimeSpan(0, 5, 0);   //间隔5分钟
+            timer.Tick += new EventHandler(TimeOut);
+            timer.Start();
         }
+        private void TimeOut(object sender, EventArgs e)
+        {
+            AutoSave();            
+        }
+
+        public DispatcherTimer timer;
 
         public override void Cleanup()
         {
@@ -171,6 +198,7 @@ namespace MarkDownEditor.ViewModel
             }
         }
 
+        public string autoSavePath = System.Environment.CurrentDirectory + "\\temp.md" ;
         public string documentPath = null;
         public string DocumentPath
         {
@@ -710,13 +738,31 @@ namespace MarkDownEditor.ViewModel
             }
             return true;
         }
+        private async void AutoSave()
+        {
+            if (string.IsNullOrEmpty(DocumentPath))
+            {
+                StreamWriter sw = new StreamWriter(autoSavePath);
+                await sw.WriteAsync(SourceCode.Text);
+                sw.Close();                
+            }
+            else
+            {
+                SaveDoc2File(DocumentPath);
+            }           
+        }
 
         private async void SaveDoc2File(string path)
         { 
             StreamWriter sw = new StreamWriter(path);
             await sw.WriteAsync(SourceCode.Text);
             sw.Close();
+            IsModified = false;  
             StatusBarText = $"{Properties.Resources.Document} \"{path}\" {Properties.Resources.SavedSuccessfully}!";
+            if (File.Exists(autoSavePath))
+            {
+                File.Delete(autoSavePath);
+            }
         }
 
         #endregion
